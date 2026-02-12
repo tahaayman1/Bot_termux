@@ -41,8 +41,11 @@ API_ID = int(API_ID)
 
 # ──────────────────────────── LOGGING ───────────────────────────
 
+DEBUG_MODE = os.getenv("DEBUG_MODE", "0") == "1"
+LOG_LEVEL = logging.DEBUG if DEBUG_MODE else logging.INFO
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=LOG_LEVEL,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler(LOG_FILE, encoding="utf-8"),
@@ -50,6 +53,46 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("userbot")
+
+# ──────────────────────────── HELPERS ───────────────────────────
+
+def normalize_arabic(text: str) -> str:
+    """إزالة التشكيل والحركات من النص العربي لتحسين المطابقة."""
+    # إزالة الحركات العربية
+    arabic_diacritics = re.compile(
+        r"[\u064B-\u065F\u0670\u0640]"
+    )
+    return arabic_diacritics.sub("", text)
+
+
+def match_keywords(text: str, keywords: list[dict]) -> list[str]:
+    """فحص النص مقابل الكلمات. ترجع قائمة بالكلمات المتطابقة."""
+    matched = []
+    # تطبيع النص
+    normalized_text = normalize_arabic(text.lower())
+    
+    for kw in keywords:
+        try:
+            normalized_kw = normalize_arabic(kw["keyword"].lower())
+            if kw["is_regex"]:
+                if re.search(normalized_kw, normalized_text, re.IGNORECASE):
+                    matched.append(kw["keyword"])
+            else:
+                if normalized_kw in normalized_text:
+                    matched.append(kw["keyword"])
+        except re.error:
+            log.warning(f"⚠️  تعبير regex غير صالح: {kw['keyword']}")
+    return matched
+
+
+def build_message_link(chat, msg_id: int) -> str:
+    """بناء رابط الرسالة."""
+    if hasattr(chat, "username") and chat.username:
+        return f"https://t.me/{chat.username}/{msg_id}"
+    if hasattr(chat, "id"):
+        # supergroup/channel خاص — internal id
+        internal_id = chat.id
+        return f"https://t.me/c/{internal_id}/{msg_id}"
 
 # ──────────────────────────── DEFAULT KEYWORDS ──────────────────
 
@@ -276,16 +319,29 @@ def copy_to_clipboard(text: str):
 
 # ──────────────────────────── HELPERS ───────────────────────────
 
+def normalize_arabic(text: str) -> str:
+    """إزالة التشكيل والحركات من النص العربي لتحسين المطابقة."""
+    # إزالة الحركات العربية
+    arabic_diacritics = re.compile(
+        r"[\u064B-\u065F\u0670\u0640]"
+    )
+    return arabic_diacritics.sub("", text)
+
+
 def match_keywords(text: str, keywords: list[dict]) -> list[str]:
     """فحص النص مقابل الكلمات. ترجع قائمة بالكلمات المتطابقة."""
     matched = []
+    # تطبيع النص
+    normalized_text = normalize_arabic(text.lower())
+    
     for kw in keywords:
         try:
+            normalized_kw = normalize_arabic(kw["keyword"].lower())
             if kw["is_regex"]:
-                if re.search(kw["keyword"], text, re.IGNORECASE):
+                if re.search(normalized_kw, normalized_text, re.IGNORECASE):
                     matched.append(kw["keyword"])
             else:
-                if kw["keyword"].lower() in text.lower():
+                if normalized_kw in normalized_text:
                     matched.append(kw["keyword"])
         except re.error:
             log.warning(f"⚠️  تعبير regex غير صالح: {kw['keyword']}")
@@ -426,6 +482,19 @@ async def main():
             )
             await event.reply(help_text)
 
+        # ── /status ──
+        elif cmd == "/status":
+            kw_count = len(get_keywords())
+            status = "🟢 مفعّل" if monitoring["active"] else "🔴 متوقف"
+            status_text = (
+                f"📊 **حالة البوت:**\n\n"
+                f"المراقبة: {status}\n"
+                f"عدد الكلمات: {kw_count}\n\n"
+                f"لتفعيل المراقبة: `/on`\n"
+                f"لإيقاف المراقبة: `/off`"
+            )
+            await event.reply(status_text)
+
     # ───────── مراقبة الرسائل ─────────
 
     @client.on(events.NewMessage(
@@ -433,7 +502,16 @@ async def main():
         func=lambda e: e.is_group or e.is_channel,
     ))
     async def message_watcher(event):
+        # تسجيل كل رسالة واردة (debug)
+        try:
+            chat_info = await event.get_chat()
+            chat_name = getattr(chat_info, "title", "Unknown")
+            log.debug(f"📨 رسالة واردة من: {chat_name}")
+        except:
+            pass
+
         if not monitoring["active"]:
+            log.debug("⏸ المراقبة متوقفة — تم تجاهل الرسالة")
             return
 
         # استخراج النص
@@ -442,16 +520,22 @@ async def main():
         if not text and event.message and event.message.message:
             text = event.message.message
         if not text:
+            log.debug("⏭ رسالة بدون نص — تم التجاهل")
             return
 
         # فحص الكلمات
         keywords = get_keywords()
         if not keywords:
+            log.warning("⚠️ لا توجد كلمات مفتاحية — لن يتم الفحص")
             return
 
+        log.debug(f"🔍 فحص الرسالة مقابل {len(keywords)} كلمة...")
         matched = match_keywords(text, keywords)
         if not matched:
+            log.debug("❌ لا يوجد تطابق")
             return
+
+        log.info(f"✅ تطابق! الكلمات: {', '.join(matched)}")
 
         # جمع المعلومات
         try:
