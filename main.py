@@ -528,7 +528,12 @@ async def main():
             not_found = []
 
             for line in lines:
-                 if del_keyword(line):
+                 # إزالة r: لو موجود
+                 kw_to_del = line
+                 if kw_to_del.startswith("r:"):
+                     kw_to_del = kw_to_del[2:].strip()
+                 
+                 if del_keyword(kw_to_del):
                      deleted.append(line)
                  else:
                      not_found.append(line)
