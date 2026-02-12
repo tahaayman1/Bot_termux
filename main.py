@@ -458,8 +458,8 @@ async def main():
 
     @client.on(events.NewMessage(
         outgoing=True,
-        # from_users=owner_id,  <-- Removing this just in case, outgoing=True implies it's us
-        func=lambda e: e.text and e.text.startswith("/")
+        # func: التأكد من أن النص يبدأ بأحد رموز الأوامر
+        func=lambda e: e.text and (e.text.startswith("/") or e.text.startswith("+") or e.text.startswith("-") or e.text == "#")
     ))
     async def command_handler(event):
         text = event.raw_text.strip()
