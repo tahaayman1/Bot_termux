@@ -465,14 +465,20 @@ async def main():
         text = event.raw_text.strip()
         if not text:
             return
+        
+        # تحويل لحروف صغيرة للمقارنة
+        lower_text = text.lower()
 
         # أوامر الإدارة (إضافة/حذف) تشتغل بس في الخاص (Saved Messages)
-        # ماعدا /setlog ممكن يشتغل في القنوات
-        if not event.is_private and text not in ["/setlog", "/status"]:
-             return
+        # ماعدا /setlog و /status ممكن يشتغل في القنوات
+        if not event.is_private:
+            if not (lower_text.startswith("/setlog") or lower_text.startswith("/status")):
+                 return # تجاهل أي رسالة أخرى في القنوات
+        
+        log.debug(f"Command received: {text} in {event.chat_id}")
 
         # ── إضافة (+ keyword) ──
-        if text.startswith("+") or text.startswith("/add"):
+        if text.startswith("+") or lower_text.startswith("/add"):
             # استخراج الكلمات (دعم الأسطر المتعددة)
             raw_content = text[1:].strip() if text.startswith("+") else text[4:].strip()
             if not raw_content:
@@ -509,7 +515,7 @@ async def main():
             log.info(f"➕ إضافات جديدة: {added}")
 
         # ── حذف (- keyword) ──
-        elif text.startswith("-") or text.startswith("/del"):
+        elif text.startswith("-") or lower_text.startswith("/del"):
             raw_content = text[1:].strip() if text.startswith("-") else text[4:].strip()
             if not raw_content:
                  await event.reply("⚠️  الاستخدام: `- كلمة` لحذفها")
@@ -535,7 +541,7 @@ async def main():
             log.info(f"➖ محذوفات: {deleted}")
 
         # ── عرض (#) ──
-        elif text == "#" or text == "/list":
+        elif text == "#" or lower_text == "/list":
             kws = get_keywords()
             if not kws:
                 await event.reply("📭  لا توجد كلمات مفتاحية حالياً.")
@@ -548,19 +554,19 @@ async def main():
                 await event.reply(header + "\n".join(lines))
 
         # ── /on ──
-        elif text == "/on":
+        elif lower_text == "/on":
             monitoring["active"] = True
             await event.reply("▶️  تم تفعيل المراقبة.")
             log.info("▶️  المراقبة مفعّلة.")
 
         # ── /off ──
-        elif text == "/off":
+        elif lower_text == "/off":
             monitoring["active"] = False
             await event.reply("⏸  تم إيقاف المراقبة.")
             log.info("⏸  المراقبة متوقفة.")
 
         # ── /help ──
-        elif text == "/help":
+        elif lower_text == "/help":
             help_text = (
                 "📖  **أوامر البوت (Eng. Taha Ayman):**\n\n"
                 "`+ كلمة` — إضافة كلمة (أو كلمات في أسطر)\n"
@@ -568,14 +574,15 @@ async def main():
                 "`#` — عرض قائمة الكلمات\n"
                 "`/on` — تفعيل المراقبة\n"
                 "`/off` — إيقاف المراقبة\n"
-                "`/status` — الحالة\n\n"
+                "`/status` — الحالة\n"
+                "`/setlog` — تعيين القناة للتنبيهات\n\n"
                 f"📊  **الحالة:** {'🟢 مفعّل' if monitoring['active'] else '🔴 متوقف'}\n"
                 f"🔑  **الكلمات:** {len(get_keywords())}"
             )
             await event.reply(help_text)
 
         # ── /status ──
-        elif text == "/status":
+        elif lower_text == "/status":
             kw_count = len(get_keywords())
             log_channel = get_config("log_channel")
             channel_status = f"📢 قناة: `{log_channel}`" if log_channel else "📁 Saved Messages"
@@ -591,7 +598,7 @@ async def main():
             await event.reply(status_text)
             
         # ── /setlog (تعيين قناة للتنبيهات) ──
-        elif text == "/setlog":
+        elif lower_text == "/setlog":
             # يجب إرسال الأمر داخل القناة نفسها
             if event.is_private:
                 await event.reply("⚠️ استخدم هذا الأمر داخل القناة التي تريد وصول التنبيهات إليها.")
@@ -604,7 +611,7 @@ async def main():
             log.info(f"📢 تم تحويل التنبيهات إلى القناة: {chat_id}")
 
         # ── /unsetlog (الرجوع للخاص) ──
-        elif text == "/unsetlog":
+        elif lower_text == "/unsetlog":
             set_config("log_channel", "")
             await event.reply("✅ رجعت التنبيهات على **Saved Messages**.")
             log.info("📁 عادت التنبيهات إلى Saved Messages.")
