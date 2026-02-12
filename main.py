@@ -57,18 +57,20 @@ log = logging.getLogger("userbot")
 # ──────────────────────────── HELPERS ───────────────────────────
 
 def normalize_arabic(text: str) -> str:
-    """إزالة التشكيل والحركات من النص العربي لتحسين المطابقة."""
+    """إزالة التشكيل والحركات والمسافات الزائدة من النص العربي لتحسين المطابقة."""
     # إزالة الحركات العربية
-    arabic_diacritics = re.compile(
-        r"[\u064B-\u065F\u0670\u0640]"
-    )
-    return arabic_diacritics.sub("", text)
+    arabic_diacritics = re.compile(r"[\u064B-\u065F\u0670\u0640]")
+    text = arabic_diacritics.sub("", text)
+    # توحيد المسافات
+    text = re.sub(r"\s+", " ", text)
+    # إزالة علامات الترقيم الشائعة
+    text = text.replace("؟", "").replace("!", "").replace(".", "").replace("،", "")
+    return text.strip()
 
 
 def match_keywords(text: str, keywords: list[dict]) -> list[str]:
-    """فحص النص مقابل الكلمات. ترجع قائمة بالكلمات المتطابقة."""
+    """فحص النص مقابل الكلمات بمطابقة قوية جداً."""
     matched = []
-    # تطبيع النص
     normalized_text = normalize_arabic(text.lower())
     
     for kw in keywords:
@@ -78,10 +80,20 @@ def match_keywords(text: str, keywords: list[dict]) -> list[str]:
                 if re.search(normalized_kw, normalized_text, re.IGNORECASE):
                     matched.append(kw["keyword"])
             else:
+                # مطابقة قوية: التحقق من وجود كل كلمات العبارة المفتاحية
+                kw_words = normalized_kw.split()
+                text_words = normalized_text.split()
+                
+                # نفس العبارة كاملة
                 if normalized_kw in normalized_text:
                     matched.append(kw["keyword"])
-        except re.error:
-            log.warning(f"⚠️  تعبير regex غير صالح: {kw['keyword']}")
+                # أو كل الكلمات موجودة (بأي ترتيب)
+                elif all(any(word in text_word or text_word in word 
+                            for text_word in text_words) 
+                        for word in kw_words):
+                    matched.append(kw["keyword"])
+        except Exception as e:
+            log.warning(f"⚠️  خطأ في فحص الكلمة {kw.get('keyword', '?')}: {e}")
     return matched
 
 
@@ -380,12 +392,38 @@ async def main():
     init_db()
 
     client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-    client.flood_sleep_threshold = 60  # تعامل تلقائي مع FloodWait حتى 60 ثانية
+    client.flood_sleep_threshold = 60
 
     await client.start()
     me = await client.get_me()
     owner_id = me.id
+    
+    # ═══════════ رسالة ترحيبية ═══════════
+    welcome_banner = (
+        "\n" + "═" * 60 + "\n"
+        "🤖  **Telegram Userbot — Monitor Bot**\n\n"
+        "✨  تم التطوير بواسطة: **طه أيمن**\n"
+        "📱  Developer: Taha Ayman\n\n"
+        f"👤  المستخدم: {me.first_name}\n"
+        f"🆔  ID: {owner_id}\n"
+        f"🔑  الكلمات المفتاحية: {len(get_keywords())}\n"
+        "\n" + "═" * 60 + "\n"
+    )
+    print(welcome_banner)
     log.info(f"✅  تم تسجيل الدخول: {me.first_name} (ID: {owner_id})")
+    log.info("🚀  تم التطوير بواسطة طه أيمن | Developer: Taha Ayman")
+    
+    # إرسال رسالة ترحيب للـ Saved Messages
+    try:
+        await client.send_message(
+            "me",
+            f"🤖 **البوت شغال الآن!**\n\n"
+            f"✨ تم التطوير بواسطة: **طه أيمن**\n"
+            f"🔑 الكلمات المفتاحية: {len(get_keywords())}\n\n"
+            f"اكتب `/help` للمساعدة"
+        )
+    except:
+        pass
 
     # حالة المراقبة
     monitoring = {"active": True}
@@ -556,33 +594,40 @@ async def main():
 
         # بناء التنبيه
         alert_lines = [
-            f"👥 المجموعة: {chat_title}",
-            f"👤 المرسل: {sender_name}",
-            f"🆔 المعرف: ID: {sender_id}",
-            f"⏰ الوقت: {now}",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "🔔  **تنبيه كلمة مفتاحية!**",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             "",
-            "📝 الرسالة الكاملة:",
-            text,
+            f"👥 **المجموعة:** {chat_title}",
+            f"👤 **المرسل:** {sender_name}",
+            f"🆔 **المعرف:** `{sender_id}`",
+            f"⏰ **الوقت:** {now}",
             "",
-            "🔥 للتواصل السريع انسخ هذا الرابط:",
-            f"tg://user?id={sender_id}",
+            "📝 **الرسالة الكاملة:**",
+            f"> {text}",
+            "",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"🎯 **الكلمات المتطابقة:** {', '.join(matched)}",
+            "",
         ]
 
+        # رابط الرسالة
         if msg_link:
-            alert_lines.append("")
-            alert_lines.append(f"🔗 رابط الرسالة:\n{msg_link}")
-        else:
-            alert_lines.append("")
-            alert_lines.append(f"🔍 ابحث بالمعرف: ID: {sender_id}")
-
+            alert_lines.append(f"🔗 **رابط الرسالة:** [اضغط هنا]({msg_link})")
+        
+        # رابط مباشر للمحادثة مع الشخص
         alert_lines.append("")
-        alert_lines.append(f"🎯 الكلمات المتطابقة: {', '.join(matched)}")
+        alert_lines.append("🔥 **للتواصل السريع:**")
+        alert_lines.append(f"👉 [راسل {sender_name} مباشرة](tg://user?id={sender_id})")
+        alert_lines.append("")
+        alert_lines.append("─" * 30)
+        alert_lines.append("✨ تم التطوير بواسطة: **طه أيمن**")
 
         alert_text = "\n".join(alert_lines)
 
         # إرسال للـ Saved Messages
         try:
-            await client.send_message("me", alert_text)
+            await client.send_message("me", alert_text, parse_mode="md")
             log.info(
                 f"🔔  تنبيه — [{chat_title}] من {sender_name} "
                 f"(الكلمات: {', '.join(matched)})"
