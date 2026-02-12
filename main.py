@@ -633,12 +633,13 @@ async def main():
             "",
             "ــــــــــــــــــــــــــــــــــــــــــــــــ",
             "🚀 **خيارات التواصل السريع:**",
-            f"1️⃣ [مراسلة مباشرة (Direct DM)](tg://user?id={sender_id})",
+            f"1️⃣ [اضغط هنا للمراسلة (رابط 1)](tg://user?id={sender_id})",
+            f"2️⃣ [اضغط هنا للمراسلة (رابط 2)](tg://openmessage?user_id={sender_id})",
         ]
         
         # إضافة رابط بروفايل لو فيه يوزرنيم
         if sender and hasattr(sender, 'username') and sender.username:
-            alert_lines.append(f"2️⃣ [بروفايل (@{sender.username})](https://t.me/{sender.username})")
+            alert_lines.append(f"3️⃣ [رابط المعرف (@{sender.username})](https://t.me/{sender.username})")
         
         if msg_link:
              alert_lines.append(f"3️⃣ [ذهاب للرسالة في الجروب]({msg_link})")
