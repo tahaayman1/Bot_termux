@@ -402,8 +402,8 @@ async def main():
     welcome_banner = (
         "\n" + "═" * 60 + "\n"
         "🤖  **Telegram Userbot — Monitor Bot**\n\n"
-        "✨  تم التطوير بواسطة: **طه أيمن**\n"
-        "📱  Developer: Taha Ayman\n\n"
+        "✨  تم التطوير بواسطة: **المهندس / طه أيمن**\n"
+        "📱  Developer: Eng. Taha Ayman\n\n"
         f"👤  المستخدم: {me.first_name}\n"
         f"🆔  ID: {owner_id}\n"
         f"🔑  الكلمات المفتاحية: {len(get_keywords())}\n"
@@ -411,14 +411,14 @@ async def main():
     )
     print(welcome_banner)
     log.info(f"✅  تم تسجيل الدخول: {me.first_name} (ID: {owner_id})")
-    log.info("🚀  تم التطوير بواسطة طه أيمن | Developer: Taha Ayman")
+    log.info("🚀  تم التطوير بواسطة المهندس / طه أيمن")
     
     # إرسال رسالة ترحيب للـ Saved Messages
     try:
         await client.send_message(
             "me",
             f"🤖 **البوت شغال الآن!**\n\n"
-            f"✨ تم التطوير بواسطة: **طه أيمن**\n"
+            f"✨ تم التطوير بواسطة: **المهندس / طه أيمن**\n"
             f"🔑 الكلمات المفتاحية: {len(get_keywords())}\n\n"
             f"اكتب `/help` للمساعدة"
         )
@@ -433,7 +433,7 @@ async def main():
     @client.on(events.NewMessage(
         outgoing=True,
         from_users=owner_id,
-        func=lambda e: e.is_private and e.text and e.text.startswith("/"),
+        func=lambda e: e.is_private and e.text, # check text availability
     ))
     async def command_handler(event):
         # فقط في Saved Messages (المحادثة مع النفس)
@@ -441,46 +441,74 @@ async def main():
             return
 
         text = event.raw_text.strip()
-        cmd_parts = text.split(maxsplit=1)
-        cmd = cmd_parts[0].lower()
-        arg = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+        if not text:
+            return
 
-        # ── /add ──
-        if cmd == "/add":
-            if not arg:
-                await event.reply("⚠️  الاستخدام: `/add كلمة`\nللريجكس: `/add r:pattern`")
-                return
-            is_regex = False
-            keyword = arg
-            if arg.startswith("r:"):
-                is_regex = True
-                keyword = arg[2:].strip()
-                # تحقق من صحة الريجكس
-                try:
-                    re.compile(keyword)
-                except re.error as e:
-                    await event.reply(f"❌  تعبير regex غير صالح: `{e}`")
-                    return
-            if add_keyword(keyword, is_regex):
-                kind = "regex" if is_regex else "كلمة"
-                await event.reply(f"✅  تمت إضافة {kind}: **{keyword}**")
-                log.info(f"➕  كلمة جديدة: {keyword} (regex={is_regex})")
-            else:
-                await event.reply(f"⚠️  الكلمة **{keyword}** موجودة بالفعل.")
+        # ── إضافة (+ keyword) ──
+        if text.startswith("+") or text.startswith("/add"):
+            # استخراج الكلمات (دعم الأسطر المتعددة)
+            raw_content = text[1:].strip() if text.startswith("+") else text[4:].strip()
+            if not raw_content:
+                 await event.reply("⚠️  الاستخدام: `+ كلمة` أو `+` ثم قائمة كلمات")
+                 return
+            
+            lines = [l.strip() for l in raw_content.split('\n') if l.strip()]
+            added = []
+            exist = []
+            
+            for line in lines:
+                is_regex = False
+                kw = line
+                if line.startswith("r:"):
+                    is_regex = True
+                    kw = line[2:].strip()
+                    try:
+                        re.compile(kw)
+                    except:
+                        continue # Skip invalid regex
+                
+                if add_keyword(kw, is_regex):
+                    added.append(kw)
+                else:
+                    exist.append(kw)
+            
+            msg = []
+            if added:
+                msg.append(f"✅ **تمت الإضافة ({len(added)}):**\n" + "\n".join([f"- `{k}`" for k in added]))
+            if exist:
+                msg.append(f"⚠️ **موجودة مسبقاً ({len(exist)}):**\n" + "\n".join([f"- `{k}`" for k in exist]))
+            
+            await event.reply("\n\n".join(msg))
+            log.info(f"➕ إضافات جديدة: {added}")
 
-        # ── /del ──
-        elif cmd == "/del":
-            if not arg:
-                await event.reply("⚠️  الاستخدام: `/del كلمة`")
-                return
-            if del_keyword(arg):
-                await event.reply(f"🗑  تم حذف: **{arg}**")
-                log.info(f"➖  حذف كلمة: {arg}")
-            else:
-                await event.reply(f"⚠️  الكلمة **{arg}** غير موجودة.")
+        # ── حذف (- keyword) ──
+        elif text.startswith("-") or text.startswith("/del"):
+            raw_content = text[1:].strip() if text.startswith("-") else text[4:].strip()
+            if not raw_content:
+                 await event.reply("⚠️  الاستخدام: `- كلمة` لحذفها")
+                 return
 
-        # ── /list ──
-        elif cmd == "/list":
+            lines = [l.strip() for l in raw_content.split('\n') if l.strip()]
+            deleted = []
+            not_found = []
+
+            for line in lines:
+                 if del_keyword(line):
+                     deleted.append(line)
+                 else:
+                     not_found.append(line)
+            
+            msg = []
+            if deleted:
+                msg.append(f"🗑 **تم الحذف ({len(deleted)}):**\n" + "\n".join([f"- `{k}`" for k in deleted]))
+            if not_found:
+                msg.append(f"⚠️ **غير موجودة ({len(not_found)}):**\n" + "\n".join([f"- `{k}`" for k in not_found]))
+            
+            await event.reply("\n\n".join(msg))
+            log.info(f"➖ محذوفات: {deleted}")
+
+        # ── عرض (#) ──
+        elif text == "#" or text == "/list":
             kws = get_keywords()
             if not kws:
                 await event.reply("📭  لا توجد كلمات مفتاحية حالياً.")
@@ -493,43 +521,41 @@ async def main():
                 await event.reply(header + "\n".join(lines))
 
         # ── /on ──
-        elif cmd == "/on":
+        elif text == "/on":
             monitoring["active"] = True
             await event.reply("▶️  تم تفعيل المراقبة.")
             log.info("▶️  المراقبة مفعّلة.")
 
         # ── /off ──
-        elif cmd == "/off":
+        elif text == "/off":
             monitoring["active"] = False
             await event.reply("⏸  تم إيقاف المراقبة.")
             log.info("⏸  المراقبة متوقفة.")
 
         # ── /help ──
-        elif cmd == "/help":
+        elif text == "/help":
             help_text = (
-                "📖  **أوامر البوت:**\n\n"
-                "`/add كلمة` — إضافة كلمة مفتاحية\n"
-                "`/add r:pattern` — إضافة تعبير regex\n"
-                "`/del كلمة` — حذف كلمة مفتاحية\n"
-                "`/list` — عرض كل الكلمات\n"
+                "📖  **أوامر البوت (Eng. Taha Ayman):**\n\n"
+                "`+ كلمة` — إضافة كلمة (أو كلمات في أسطر)\n"
+                "`- كلمة` — حذف كلمة (أو كلمات)\n"
+                "`#` — عرض قائمة الكلمات\n"
                 "`/on` — تفعيل المراقبة\n"
                 "`/off` — إيقاف المراقبة\n"
-                "`/help` — عرض هذه المساعدة\n\n"
+                "`/status` — الحالة\n\n"
                 f"📊  **الحالة:** {'🟢 مفعّل' if monitoring['active'] else '🔴 متوقف'}\n"
                 f"🔑  **الكلمات:** {len(get_keywords())}"
             )
             await event.reply(help_text)
 
         # ── /status ──
-        elif cmd == "/status":
+        elif text == "/status":
             kw_count = len(get_keywords())
             status = "🟢 مفعّل" if monitoring["active"] else "🔴 متوقف"
             status_text = (
                 f"📊 **حالة البوت:**\n\n"
                 f"المراقبة: {status}\n"
                 f"عدد الكلمات: {kw_count}\n\n"
-                f"لتفعيل المراقبة: `/on`\n"
-                f"لإيقاف المراقبة: `/off`"
+                f"✨ المطور: المهندس / طه أيمن"
             )
             await event.reply(status_text)
 
@@ -594,34 +620,31 @@ async def main():
 
         # بناء التنبيه
         alert_lines = [
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            "🔔  **تنبيه كلمة مفتاحية!**",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "🔴 **تنبيه جديد _(Monitor Bot)_**",
             "",
-            f"👥 **المجموعة:** {chat_title}",
-            f"👤 **المرسل:** {sender_name}",
-            f"🆔 **المعرف:** `{sender_id}`",
-            f"⏰ **الوقت:** {now}",
-            "",
-            "📝 **الرسالة الكاملة:**",
+            f"📨 **الرسالة:**",
             f"> {text}",
             "",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            f"🎯 **الكلمات المتطابقة:** {', '.join(matched)}",
+            f"👤 **المرسل:** {sender_name}",
+            f"🏷 **المجموعة:** {chat_title}",
+            f"⏰ **الوقت:** {now}",
             "",
+            f"🎯 `{'`, `'.join(matched)}`",
+            "",
+            "ــــــــــــــــــــــــــــــــــــــــــــــــ",
+            "🚀 **خيارات التواصل السريع:**",
+            f"1️⃣ [مراسلة مباشرة (Direct DM)](tg://user?id={sender_id})",
         ]
-
-        # رابط الرسالة
-        if msg_link:
-            alert_lines.append(f"🔗 **رابط الرسالة:** [اضغط هنا]({msg_link})")
         
-        # رابط مباشر للمحادثة مع الشخص
+        # إضافة رابط بروفايل لو فيه يوزرنيم
+        if sender and hasattr(sender, 'username') and sender.username:
+            alert_lines.append(f"2️⃣ [بروفايل (@{sender.username})](https://t.me/{sender.username})")
+        
+        if msg_link:
+             alert_lines.append(f"3️⃣ [ذهاب للرسالة في الجروب]({msg_link})")
+
         alert_lines.append("")
-        alert_lines.append("🔥 **للتواصل السريع:**")
-        alert_lines.append(f"👉 [راسل {sender_name} مباشرة](tg://user?id={sender_id})")
-        alert_lines.append("")
-        alert_lines.append("─" * 30)
-        alert_lines.append("✨ تم التطوير بواسطة: **طه أيمن**")
+        alert_lines.append("👨‍💻 تم التطوير بواسطة: **المهندس / طه أيمن**")
 
         alert_text = "\n".join(alert_lines)
 
@@ -639,8 +662,8 @@ async def main():
         except Exception as e:
             log.error(f"❌  خطأ في إرسال التنبيه: {e}")
 
-        # نسخ للحافظة (Termux)
-        copy_to_clipboard(alert_text)
+        # (تم تعطيل النسخ التلقائي بناءً على طلب المستخدم)
+        # copy_to_clipboard(alert_text)
 
     # ───────── تشغيل ─────────
 
