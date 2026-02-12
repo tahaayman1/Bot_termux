@@ -458,11 +458,13 @@ async def main():
 
     @client.on(events.NewMessage(
         outgoing=True,
-        from_users=owner_id,
-        func=lambda e: e.text and e.text.startswith("/") # السماح بالأوامر في القنوات كمان عشان /setlog
+        # from_users=owner_id,  <-- Removing this just in case, outgoing=True implies it's us
+        func=lambda e: e.text and e.text.startswith("/")
     ))
     async def command_handler(event):
         text = event.raw_text.strip()
+        log.info(f"⚡ DEBUG: Command detected: {text} | Chat: {event.chat_id} | Private: {event.is_private}")
+                     
         if not text:
             return
         
