@@ -253,6 +253,14 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS config (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
     # إضافة الكلمات الافتراضية لو القاعدة فاضية
@@ -310,6 +318,24 @@ def del_keyword(keyword: str) -> bool:
     deleted = cur.rowcount > 0
     conn.close()
     return deleted
+
+
+def set_config(key: str, value: str):
+    """تعيين إعداد في قاعدة البيانات."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+
+def get_config(key: str) -> str:
+    """جلب إعداد من قاعدة البيانات."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.execute("SELECT value FROM config WHERE key = ?", (key,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
 
 # ──────────────────────────── CLIPBOARD (TERMUX) ────────────────
 
@@ -433,16 +459,17 @@ async def main():
     @client.on(events.NewMessage(
         outgoing=True,
         from_users=owner_id,
-        func=lambda e: e.is_private and e.text, # check text availability
+        func=lambda e: e.text and e.text.startswith("/") # السماح بالأوامر في القنوات كمان عشان /setlog
     ))
     async def command_handler(event):
-        # فقط في Saved Messages (المحادثة مع النفس)
-        if event.chat_id != owner_id:
-            return
-
         text = event.raw_text.strip()
         if not text:
             return
+
+        # أوامر الإدارة (إضافة/حذف) تشتغل بس في الخاص (Saved Messages)
+        # ماعدا /setlog ممكن يشتغل في القنوات
+        if not event.is_private and text not in ["/setlog", "/status"]:
+             return
 
         # ── إضافة (+ keyword) ──
         if text.startswith("+") or text.startswith("/add"):
@@ -550,14 +577,37 @@ async def main():
         # ── /status ──
         elif text == "/status":
             kw_count = len(get_keywords())
+            log_channel = get_config("log_channel")
+            channel_status = f"📢 قناة: `{log_channel}`" if log_channel else "📁 Saved Messages"
+            
             status = "🟢 مفعّل" if monitoring["active"] else "🔴 متوقف"
             status_text = (
                 f"📊 **حالة البوت:**\n\n"
                 f"المراقبة: {status}\n"
+                f"التنبيهات: {channel_status}\n"
                 f"عدد الكلمات: {kw_count}\n\n"
                 f"✨ المطور: المهندس / طه أيمن"
             )
             await event.reply(status_text)
+            
+        # ── /setlog (تعيين قناة للتنبيهات) ──
+        elif text == "/setlog":
+            # يجب إرسال الأمر داخل القناة نفسها
+            if event.is_private:
+                await event.reply("⚠️ استخدم هذا الأمر داخل القناة التي تريد وصول التنبيهات إليها.")
+                return
+            
+            # حفظ ID القناة
+            chat_id = str(event.chat_id)
+            set_config("log_channel", chat_id)
+            await event.reply(f"✅ تم تعيين هذه القناة ({chat_id}) لاستلام التنبيهات!")
+            log.info(f"📢 تم تحويل التنبيهات إلى القناة: {chat_id}")
+
+        # ── /unsetlog (الرجوع للخاص) ──
+        elif text == "/unsetlog":
+            set_config("log_channel", "")
+            await event.reply("✅ رجعت التنبيهات على **Saved Messages**.")
+            log.info("📁 عادت التنبيهات إلى Saved Messages.")
 
     # ───────── مراقبة الرسائل ─────────
 
@@ -649,9 +699,17 @@ async def main():
 
         alert_text = "\n".join(alert_lines)
 
-        # إرسال للـ Saved Messages
+        # إرسال للـ Saved Messages أو القناة المحددة
+        target_chat = get_config("log_channel") or "me"
         try:
-            await client.send_message("me", alert_text, parse_mode="md")
+            # إذا كان الهدف هو قناة، تأكد من أنها رقم (int)
+            if target_chat != "me":
+                try:
+                    target_chat = int(target_chat)
+                except:
+                    pass
+            
+            await client.send_message(target_chat, alert_text, parse_mode="md")
             log.info(
                 f"🔔  تنبيه — [{chat_title}] من {sender_name} "
                 f"(الكلمات: {', '.join(matched)})"
